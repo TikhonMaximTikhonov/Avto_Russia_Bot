@@ -119,15 +119,7 @@ class DataBase:
 
 def create_markup(data):
     markup = telebot.types.ReplyKeyboardMarkup(True)
-    if type(data) == dict:
-        for button_text in data.keys():
-            markup.row(telebot.types.KeyboardButton(button_text, callback_data=data[button_text]))
-    elif type(data) == list:
-        for mini_data in data:
-            buttons = []
-            for button_text in mini_data.keys():
-                buttons.append(telebot.types.KeyboardButton(button_text, callback_data=mini_data[button_text]))
-            markup.row(*buttons)
+    markup.row(telebot.types.KeyboardButton(button_text))
     return markup
 
 
@@ -159,7 +151,7 @@ def text(message):
     # bot.send_message(message.from_user.id, "\n".join(task["answer_options"]))
 
 
-db = DataBase("db.db")
+db = DataBase("database.db")
 print("База данных открыта/создана")
 
 bot.polling()
