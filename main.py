@@ -1,4 +1,7 @@
+# -*- coding: utf-8 -*-
+
 import telebot
+# telebot.logger.setLevel(__import__('logging').DEBUG)
 
 from bs4 import BeautifulSoup
 import requests
@@ -117,19 +120,30 @@ class DataBase:
         return user.ticket_number
 
 
-def create_markup(data):
+def create_markup(main_buttons_data):
     markup = telebot.types.ReplyKeyboardMarkup(True)
-    markup.row(telebot.types.KeyboardButton(button_text))
+    for button_data in main_buttons_data:
+        if type(button_data) == list:
+            buttons = []
+            for button_name in button_data:
+                buttons.append(telebot.types.KeyboardButton(button_name))
+            markup.row(*buttons)
+        else:
+            markup.row(telebot.types.KeyboardButton(button_data))
     return markup
 
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(message.from_user.id, "Выберите один из предложенных режимов",
-                     reply_markup=create_markup({
-                         "Случайный билет": "/random_text", "Работа над ошибками": "/working_on_bugs",
-                         "Выбрать билет": "/choose_ticket", "Тотальный тест (все 800 вопросов)": "/total_test"
-                     }))
+                     reply_markup=create_markup(["Выбрать билет", "Работа над ошибками", "Тотальный тест"]))
+
+
+@bot.message_handler(content_types=["text"], func=lambda message: message.text == "Выбрать билет")
+def choosing_ticket(message):
+    bot.send_message(message.from_user.id, "Выберите билет", reply_markup=create_markup([
+        [*range(1, 9)], [*range(9, 17)], [*range(17, 25)], [*range(25, 33)], [*range(33, 41)], "🎲 Случайный билет 🎲"
+    ]))
 
 
 @bot.message_handler(content_types=["text"])
