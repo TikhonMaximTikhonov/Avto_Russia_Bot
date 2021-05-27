@@ -11,6 +11,9 @@ import sqlalchemy.orm as orm
 from sqlalchemy.orm import Session
 import sqlalchemy.ext.declarative as dec
 
+from json import loads, dumps
+from random import shuffle
+
 bot = telebot.TeleBot(open("token.txt", "r", encoding="utf8").read().strip())
 
 SqlAlchemyBase = dec.declarative_base()
@@ -18,16 +21,18 @@ SqlAlchemyBase = dec.declarative_base()
 
 class User(SqlAlchemyBase):
     __tablename__ = "users"
-    id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, unique=True, nullable=False)
-    ticket_number = sqlalchemy.Column(sqlalchemy.Float, nullable=True)
-    correct_answer = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+    user_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, unique=True, nullable=False)
+    mode = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+    additional_list = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+    errors_list = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+    ticket_number = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
+    answer_number = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
+    true_answer = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+    false_answers = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
     hint = sqlalchemy.Column(sqlalchemy.Text, nullable=True)
 
-    def __init__(self, user_id, ticket_number=0, correct_answer=None, hint=None):
-        self.id = int(user_id)
-        self.ticket_number = float(ticket_number)
-        self.correct_answer = correct_answer
-        self.hint = hint
+    def __init__(self, user_id):
+        self.user_id = int(user_id)
 
 
 class Parser:
@@ -104,15 +109,48 @@ class DataBase:
     def create_session(self) -> Session:
         return self.factory()
 
-    def save_user_data(self, user_id, user_data):
+    def create_user(self, user_id):
         session = self.create_session()
-        if session.query(User).filter(User.id == user_id).first() is None:
-            user = User(user_id, *user_data)
+        if session.query(User).filter(User.user_id == user_id).first() is None:
+            user = User(user_id)
             session.add(user)
-        else:
-            user = session.query(User).filter(User.id == user_id).first()
-            user.ticket_number, user.correct_answer, user.hint = user_data
         session.commit()
+
+    def save_user_data(self, user_id, mode=None, additional_list=None, errors_list=None, ticket_number=None,
+                       answer_number=None, true_answer=None, false_answers=None, hint=None):
+        session = self.create_session()
+        user = session.query(User).filter(User.user_id == user_id).first()
+        if mode:
+            user.mode = mode
+        if additional_list:
+            user.additional_list = additional_list
+        if errors_list:
+            user.errors_list = errors_list
+        if ticket_number:
+            user.ticket_number = ticket_number
+        if answer_number:
+            user.answer_number = answer_number
+        if true_answer:
+            user.true_answer = true_answer
+        if false_answers:
+            user.false_answers = false_answers
+        if hint:
+            user.hint = hint
+        session.commit()
+
+    def return_false_answers(self, user_id):
+        user = self.create_session().query(User).filter(User.user_id == user_id).first()
+        if user.false_answers is not None:
+            return loads(user.false_answers)
+        return []
+
+    def return_true_answer(self, user_id):
+        user = self.create_session().query(User).filter(User.user_id == user_id).first()
+        return user.true_answer
+
+    def return_mode(self, user_id):
+        user = self.create_session().query(User).filter(User.user_id == user_id).first()
+        return user.mode
 
     def return_ticket_number(self, user_id):
         session = self.create_session()
@@ -134,38 +172,65 @@ def create_markup(main_buttons_data):
 
 
 @bot.message_handler(commands=["start"])
-def start(message):
+def start_function(message):
+    data_base.create_user(message.from_user.id)
     bot.send_message(message.from_user.id, "Выберите один из предложенных режимов",
                      reply_markup=create_markup(["Выбрать билет", "Работа над ошибками", "Тотальный тест"]))
 
 
 @bot.message_handler(content_types=["text"], func=lambda message: message.text == "Выбрать билет")
-def choosing_ticket(message):
+def selected_ticket_function(message):
+    data_base.save_user_data(message.from_user.id, mode="selected_ticket")
     bot.send_message(message.from_user.id, "Выберите билет", reply_markup=create_markup([
         [*range(1, 9)], [*range(9, 17)], [*range(17, 25)], [*range(25, 33)], [*range(33, 41)], "🎲 Случайный билет 🎲"
     ]))
 
 
-@bot.message_handler(content_types=["text"])
+@bot.message_handler(content_types=["text"],
+                     func=lambda message: message.text in data_base.return_false_answers(message.from_user.id))
+def false_answers_function(message):
+    bot.send_message(message.from_user.id, "Ты лох")
+
+
+@bot.message_handler(content_types=["text"],
+                     func=lambda message: message.text == data_base.return_true_answer(message.from_user.id))
+def true_answer_function(message):
+    bot.send_message(message.from_user.id, "Ты молодец")
+
+
+@bot.message_handler(content_types=["text"],
+                     func=lambda message: message.text.isdigit() and 0 < int(message.text) < 21 and
+                     data_base.return_mode(message.from_user.id) == "selected_ticket")
 def text(message):
-    if message.text.isdigit() and 0 < int(message.text) < 21 or message.text == "Следующий вопрос":
-        if message.text.isdigit() and 0 < int(message.text) < 21:
-            full_task_number = [int(message.text), 1]
-            task = Parser(*full_task_number).return_data()
-            db.save_user_data(message.from_user.id,
-                              [round(float(message.text) + 0.02, 2), task["correct_answer"], task["hint"]])
-        else:
-            full_task_number = list(map(int, str(db.return_ticket_number(message.from_user.id)).split(".")))
-            task = Parser(*full_task_number).return_data()
-            db.save_user_data(message.from_user.id, [
-                round(db.return_ticket_number(message.from_user.id) + 0.01, 2), task["correct_answer"], task["hint"]])
-        bot.send_message(message.from_user.id, task["ticket_number"])
-        bot.send_photo(message.from_user.id, task["picture_url"], task["question"])
+    full_task_number = [int(message.text), 1]
+    task = Parser(*full_task_number).return_data()
+    task["answer_options"].remove(task["correct_answer"])
+    data_base.save_user_data(message.from_user.id,
+                             ticket_number=int(message.text),
+                             answer_number=1,
+                             true_answer=task["correct_answer"],
+                             false_answers=dumps(task["answer_options"]),
+                             hint=task["hint"])
+    task["answer_options"].extend([task["correct_answer"]])
+    shuffle(task["answer_options"])
+    bot.send_message(message.from_user.id, task["ticket_number"])
+    bot.send_photo(message.from_user.id, task["picture_url"], task["question"],
+                   reply_markup=create_markup(task["answer_options"]))
 
-    # bot.send_message(message.from_user.id, "\n".join(task["answer_options"]))
+
+#         else:
+#             full_task_number = list(map(int, str(data_base.return_ticket_number(message.from_user.id)).split(".")))
+#             task = Parser(*full_task_number).return_data()
+#             data_base.save_user_data(message.from_user.id, [
+#                 round(data_base.return_ticket_number(message.from_user.id) + 0.01, 2), task["correct_answer"],
+#                 task["hint"]
+#             ])
+#
+#
+#     bot.send_message(message.from_user.id, "\n".join(task["answer_options"]))
 
 
-db = DataBase("database.db")
+data_base = DataBase("database.db")
 print("База данных открыта/создана")
 
 bot.polling()
