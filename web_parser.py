@@ -1,8 +1,10 @@
 from bs4 import BeautifulSoup
 import requests
 
+from pprint import pprint
 
-class Parser:
+
+class TicketParser:
     def __init__(self, ticket_number, task_number):
         url = f"https://avto-russia.ru/pdd_abma1b1/bilet{ticket_number}.html"
         self.parser = BeautifulSoup(requests.get(url).text, "lxml")
@@ -58,3 +60,23 @@ class Parser:
     def write_correct_answer(self):
         correct_answer = self.parser.body.findAll("span", {"style": "color:#008000"})[self.task_number]
         self.all_sorted_data["correct_answer"] = correct_answer.text
+
+
+class ThemeParser:
+    def __init__(self):
+        url = f"https://avto-russia.ru/pdd_abma1b1/index.html?part=them#bilet"
+        self.parser = BeautifulSoup(requests.get(url).text, "lxml")
+        self.data = {}
+
+    def return_data(self):
+        ticket = self.parser.body.section.div.div.findAll("div", {"class": "tab-pane fade", "id": "them"})
+        key, index = None, [1, None]
+        for line in ticket[0].text.split("\n"):
+            if line not in ("\xa0", "", "Билеты ПДД по темам:"):
+                if line.startswith("Билет"):
+                    index = [index[0] + 1, int(line.replace("Билет ", ""))]
+                elif line == "Экзамен":
+                    self.data[key] = [int((index[0] - index[1]) / 2) + 1, int(index[0] / 2)]
+                else:
+                    key = line
+        return self.data
